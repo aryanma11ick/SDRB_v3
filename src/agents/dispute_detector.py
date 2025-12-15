@@ -26,7 +26,7 @@ def detect_dispute(preprocessed_email: dict) -> dict:
     )
 
     response = client.chat.completions.create(
-        model="gpt-4.1-mini",
+        model="gpt-5.2",
         messages=[{"role": "user", "content": filled_prompt}],
         temperature=0
     )
