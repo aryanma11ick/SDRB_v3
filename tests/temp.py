@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import json
 from src.agents.email_preprocessor import preprocess_email_llm
 
@@ -28,3 +29,6 @@ if __name__ == "__main__":
 
     print("✅ Preprocessed output:")
     print(json.dumps(processed, indent=2))
+=======
+import imaplib
+>>>>>>> b760854710fc32e50d6f0a74d9fcbf18039b8150
