@@ -1,8 +1,0 @@
-pyproject.toml
-src/agents/__init__.py
-src/agents/inbox_watcher.py
-src/sdrb_V3.egg-info/PKG-INFO
-src/sdrb_V3.egg-info/SOURCES.txt
-src/sdrb_V3.egg-info/dependency_links.txt
-src/sdrb_V3.egg-info/top_level.txt
-tests/test_inbox_watcher.py
