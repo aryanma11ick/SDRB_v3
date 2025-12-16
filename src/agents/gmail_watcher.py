@@ -6,6 +6,9 @@ from googleapiclient.discovery import build
 import base64
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
+PROCESSED_LABEL_NAME = "Processed"
+NON_DISPUTE_LABEL_NAME = "NonDispute"
+DISPUTE_LABEL_NAME = "Dispute"
 
 
 def get_gmail_service():
@@ -27,6 +30,39 @@ def get_gmail_service():
             token.write(creds.to_json())
 
     return build("gmail", "v1", credentials=creds)
+
+
+def get_or_create_label(service, label_name: str = PROCESSED_LABEL_NAME) -> str:
+    """Return label ID for name, creating it if missing."""
+    labels_response = service.users().labels().list(userId="me").execute()
+    for label in labels_response.get("labels", []):
+        if label.get("name") == label_name:
+            return label.get("id")
+    created = service.users().labels().create(
+        userId="me",
+        body={
+            "name": label_name,
+            "labelListVisibility": "labelShow",
+            "messageListVisibility": "show",
+        },
+    ).execute()
+    return created["id"]
+
+
+def mark_as_processed(service, message_id: str, label_id: str):
+    """Apply the processed label to a message to avoid reprocessing."""
+    mark_labels(service, message_id, [label_id])
+
+
+def mark_labels(service, message_id: str, add_label_ids: list[str]):
+    """Apply one or more labels to a Gmail message."""
+    if not add_label_ids:
+        return
+    service.users().messages().modify(
+        userId="me",
+        id=message_id,
+        body={"addLabelIds": add_label_ids, "removeLabelIds": []}
+    ).execute()
 
 
 def _decode_body(body: dict) -> str:
@@ -78,10 +114,19 @@ def _extract_body(payload: dict) -> str:
     return ""
 
 
-def fetch_emails(limit=5):
+def fetch_emails(
+    limit=5,
+    exclude_processed: bool = True,
+    processed_label: str = PROCESSED_LABEL_NAME
+):
     service = get_gmail_service()
+    query = None
+    if exclude_processed:
+        # Gmail search skips messages with the processed label
+        query = f"-label:{processed_label}"
+
     results = service.users().messages().list(
-        userId="me", maxResults=limit
+        userId="me", maxResults=limit, q=query
     ).execute()
 
     messages = results.get("messages", [])
