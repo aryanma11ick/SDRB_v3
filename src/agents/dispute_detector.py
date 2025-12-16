@@ -1,8 +1,12 @@
 import json
 from pathlib import Path
 from openai import OpenAI
+import os
+from dotenv import load_dotenv
+load_dotenv()
 
-client = OpenAI()
+OPENAPI_API_KEY = os.getenv("OPENAI_API_KEY")
+client = OpenAI(api_key=OPENAPI_API_KEY)
 
 PROMPT_PATH = Path("src/prompts/dispute_detection.txt")
 
@@ -40,6 +44,7 @@ def detect_dispute(preprocessed_email: dict) -> dict:
 
     return {
         "email_id": preprocessed_email.get("email_id"),
+        "thread_id": preprocessed_email.get("thread_id"),
         "classification": result["classification"],
         "confidence": result["confidence"],
         "reason": result["reason"]

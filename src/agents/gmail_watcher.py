@@ -64,6 +64,7 @@ def fetch_emails(limit=5):
 
         emails.append({
             "email_id": msg["id"],
+            "thread_id": msg["threadId"],
             "from": from_,
             "subject": subject,
             "date": date,
