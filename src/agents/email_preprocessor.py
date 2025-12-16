@@ -26,7 +26,11 @@ def preprocess_email_llm(raw_email: dict) -> dict:
         temperature=0
     )
 
-    content = response.choices[0].message.content.strip()
+    content = response.choices[0].message.content
+    if content is None:
+        raise RuntimeError("LLM returned empty content")
+    
+    content = content.strip()
 
     try:
         return json.loads(content)

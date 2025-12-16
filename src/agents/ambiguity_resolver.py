@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from datetime import datetime, timezone
 import os
+from typing import Any
 
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -41,7 +42,10 @@ def resolve_ambiguity(
 
     # Only resolve if clarification is still pending
     if stm["state"] != "AWAITING_CLARIFICATION":
-        return stm.get("pending_question")
+        pending_question = stm.get("pending_question")
+        if not isinstance(pending_question, str) or not pending_question:
+            raise RuntimeError("Pending clarification question missing in STM")
+        return pending_question
 
     prompt_template = PROMPT_PATH.read_text(encoding="utf-8")
 
@@ -58,17 +62,20 @@ def resolve_ambiguity(
         temperature=0
     )
 
-    content = response.choices[0].message.content.strip()
+    message_content = response.choices[0].message.content
+    if message_content is None:
+        raise RuntimeError("Ambiguity resolver returned empty response")
+    content = message_content.strip()
 
     try:
-        result = json.loads(content)
+        result: dict[str, Any] = json.loads(content)
     except json.JSONDecodeError:
         raise RuntimeError("Ambiguity resolver returned invalid JSON")
 
     question = result.get("clarification_question")
-
-    if not question:
+    if not isinstance(question, str) or not question.strip():
         raise RuntimeError("No clarification question generated")
+    question = question.strip()
 
     # Update STM
     now = datetime.now(timezone.utc).isoformat()
