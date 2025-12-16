@@ -19,6 +19,7 @@ class ClarificationMailerAgent:
         self,
         thread_id: str,
         original_email_id: str,
+        original_message_id_header: str | None,
         supplier_email_id: str,
         original_subject: str,
         clarification_question: str,
@@ -63,14 +64,18 @@ class ClarificationMailerAgent:
         if not subject.lower().startswith("re:"):
             subject = f"Re: {subject}"
 
+        # Use the RFC Message-ID header for threading when available;
+        # fall back to the Gmail message resource id to avoid failing.
+        reply_token = original_message_id_header or original_email_id
+
         msg = EmailMessage()
         msg["To"] = supplier_email_id
         msg["From"] = sender_display_name
         msg["Subject"] = subject
 
         # Threading headers (CRITICAL)
-        msg["In-Reply-To"] = original_email_id
-        msg["References"] = original_email_id
+        msg["In-Reply-To"] = reply_token
+        msg["References"] = reply_token
 
         msg.set_content(
             f"""Hello,

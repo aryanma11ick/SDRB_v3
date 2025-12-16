@@ -29,6 +29,55 @@ def get_gmail_service():
     return build("gmail", "v1", credentials=creds)
 
 
+def _decode_body(body: dict) -> str:
+    """Decode a Gmail message body's base64 payload safely."""
+    if not body:
+        return ""
+    data = body.get("data")
+    if not data:
+        return ""
+    return base64.urlsafe_b64decode(data).decode("utf-8", errors="ignore")
+
+
+def _extract_body(payload: dict) -> str:
+    """
+    Extract text content from a Gmail message payload.
+    Prefers text/plain; falls back to text/html if plain is absent.
+    """
+    if not payload:
+        return ""
+
+    # Some messages place content directly in payload.body
+    direct_body = _decode_body(payload.get("body", {}))
+    if direct_body:
+        return direct_body
+
+    plain_parts = []
+    html_parts = []
+
+    for part in payload.get("parts", []):
+        mime_type = part.get("mimeType", "")
+        if mime_type == "text/plain":
+            text = _decode_body(part.get("body", {}))
+            if text:
+                plain_parts.append(text)
+        elif mime_type == "text/html":
+            text = _decode_body(part.get("body", {}))
+            if text:
+                html_parts.append(text)
+        else:
+            # Nested multipart/alternative; recurse
+            nested = _extract_body(part)
+            if nested:
+                plain_parts.append(nested)
+
+    if plain_parts:
+        return "\n".join(plain_parts)
+    if html_parts:
+        return "\n".join(html_parts)
+    return ""
+
+
 def fetch_emails(limit=5):
     service = get_gmail_service()
     results = service.users().messages().list(
@@ -45,22 +94,21 @@ def fetch_emails(limit=5):
 
         headers = msg_data["payload"]["headers"]
         subject = from_ = date = ""
+        message_id_header = None
 
         for h in headers:
-            if h["name"] == "Subject":
+            name = h["name"]
+            if name == "Subject":
                 subject = h["value"]
-            if h["name"] == "From":
+            if name == "From":
                 from_ = h["value"]
-            if h["name"] == "Date":
+            if name == "Date":
                 date = h["value"]
+            # Gmail returns "Message-ID" header we need for threading
+            if name.lower() == "message-id":
+                message_id_header = h["value"]
 
-        body = ""
-        if "parts" in msg_data["payload"]:
-            for part in msg_data["payload"]["parts"]:
-                if part["mimeType"] == "text/plain":
-                    body = base64.urlsafe_b64decode(
-                        part["body"]["data"]
-                    ).decode("utf-8", errors="ignore")
+        body = _extract_body(msg_data.get("payload", {}))
 
         emails.append({
             "email_id": msg["id"],
@@ -69,6 +117,8 @@ def fetch_emails(limit=5):
             "subject": subject,
             "date": date,
             "body": body,
+            # The RFC Message-ID header (not the Gmail message resource id)
+            "message_id_header": message_id_header,
         })
 
     return emails
