@@ -13,15 +13,46 @@ from src.agents.gmail_watcher import (
 )
 from src.agents.email_preprocessor import preprocess_email_llm
 from src.agents.dispute_detector import detect_dispute
+from src.agents.dispute_claim_extractor import extract_dispute_claim
 from src.agents.stm_manager import STMManager
 from src.agents.ambiguity_resolver import resolve_ambiguity
 from src.agents.clarification_drafter import draft_clarification_email
 from src.agents.clarification_mailer import ClarificationMailerAgent
+from src.services.dispute_resolver import resolve_dispute_case
 
 
 stm_manager = STMManager()
 mailer = ClarificationMailerAgent()
 PROCESSED_SET_KEY = "processed:email_ids"
+
+
+def resolve_and_persist_dispute(processed_email: dict, decision: dict) -> None:
+    """
+    Extracts the structured claim, resolves it against Postgres/SAP data,
+    and prints the outcome. Errors are swallowed so the pipeline keeps running.
+    """
+    try:
+        claim = extract_dispute_claim(processed_email)
+        result = resolve_dispute_case(
+            processed_email=processed_email,
+            claim=claim,
+            classification_confidence=decision.get("confidence", 0.0),
+        )
+        print("\nDISPUTE RESOLUTION RESULT")
+        printable = {
+            "dispute_valid": result.dispute_valid,
+            "resolution_reason": result.resolution_reason,
+            "supplier_id": result.supplier_id,
+            "invoice_id": result.invoice_id,
+            "invoice_number": result.invoice_number,
+            "claimed_amount": str(result.claimed_amount) if result.claimed_amount is not None else None,
+            "sap_amount": str(result.sap_amount) if result.sap_amount is not None else None,
+            "dispute_case_id": result.dispute_case_row.get("case_id") if result.dispute_case_row else None,
+            "ltm_snapshot": result.supplier_ltm_row,
+        }
+        print(json.dumps(printable, indent=2, default=str))
+    except Exception as exc:  # keep pipeline alive
+        print("Failed to resolve dispute:", exc)
 
 
 def process_email(email: dict) -> str | None:
@@ -97,6 +128,8 @@ def process_email(email: dict) -> str | None:
             # Mark resolved with dispute; handoff can be added later
             stm["state"] = "RESOLVED_DISPUTE"
             stm_manager.create_or_update(stm)
+            resolve_and_persist_dispute(processed, decision)
+            stm_manager.delete(thread_id)
             print("=" * 80, "\n")
             return "DISPUTE"
 
@@ -118,6 +151,13 @@ def process_email(email: dict) -> str | None:
             stm_manager.delete(thread_id)
         print("=" * 80, "\n")
         return "NON_DISPUTE"
+
+    if decision["classification"] == "DISPUTE":
+        if stm:
+            stm_manager.delete(thread_id)
+        resolve_and_persist_dispute(processed, decision)
+        print("=" * 80, "\n")
+        return "DISPUTE"
 
     # ==========================================================
     # HANDLE AMBIGUOUS EMAILS

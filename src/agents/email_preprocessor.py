@@ -1,15 +1,13 @@
 import json
 import os
-from openai import OpenAI
 from pathlib import Path
-from dotenv import load_dotenv
 
-load_dotenv()
-OPENAPI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAPI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.2")
+from src.utils.llm_client import get_default_model, get_openai_client
+
+OPENAI_MODEL = get_default_model()
 EMAIL_SYSTEM_ID = os.getenv("SYSTEM_EMAIL_ID")
 
-client = OpenAI(api_key=OPENAPI_API_KEY)
+client = get_openai_client()
 
 PROMPT_PATH = Path("src/prompts/email_preprocessor.txt")
 

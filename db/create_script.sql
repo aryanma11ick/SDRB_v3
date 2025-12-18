@@ -45,6 +45,9 @@ CREATE TABLE supplier_ltm (
     valid_disputes  INT           NOT NULL DEFAULT 0,
     fake_disputes   INT           NOT NULL DEFAULT 0,
     risk_score      NUMERIC(4,2)  NOT NULL DEFAULT 0.00,
+    first_dispute_at TIMESTAMP,
+    last_dispute_at  TIMESTAMP,
+    disputes_per_30d NUMERIC(8,2) NOT NULL DEFAULT 0.00,
     last_updated    TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

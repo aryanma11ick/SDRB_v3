@@ -1,22 +1,15 @@
 from __future__ import annotations
 
 import json
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
-from openai import OpenAI
-
+from src.utils.llm_client import get_default_model, get_openai_client
 from src.agents.stm_manager import STMManager
 
-load_dotenv()
-
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.2")
-
-client = OpenAI(api_key=OPENAI_API_KEY)
+OPENAI_MODEL = get_default_model()
+client = get_openai_client()
 
 PROMPT_PATH = Path("src/prompts/clarification_email_drafter.txt")
 
@@ -128,4 +121,3 @@ def draft_clarification_email(
         "clarification_question": question,
         "body_text": body_text,
     }
-

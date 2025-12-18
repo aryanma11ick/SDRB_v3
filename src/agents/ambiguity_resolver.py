@@ -1,18 +1,13 @@
 import json
 from pathlib import Path
 from datetime import datetime, timezone
-import os
 from typing import Any
 
-from openai import OpenAI
-from dotenv import load_dotenv
-
+from src.utils.llm_client import get_default_model, get_openai_client
 from src.agents.stm_manager import STMManager
 
-load_dotenv()
-
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-client = OpenAI(api_key=OPENAI_API_KEY)
+DEFAULT_MODEL = get_default_model()
+client = get_openai_client()
 
 PROMPT_PATH = Path("src/prompts/ambiguity_resolver.txt")
 
@@ -57,7 +52,7 @@ def resolve_ambiguity(
     )
 
     response = client.chat.completions.create(
-        model="gpt-5.2",
+        model=DEFAULT_MODEL,
         messages=[{"role": "user", "content": filled_prompt}],
         temperature=0
     )

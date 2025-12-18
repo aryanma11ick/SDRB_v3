@@ -1,12 +1,10 @@
 import json
 from pathlib import Path
-from openai import OpenAI
-import os
-from dotenv import load_dotenv
-load_dotenv()
 
-OPENAPI_API_KEY = os.getenv("OPENAI_API_KEY")
-client = OpenAI(api_key=OPENAPI_API_KEY)
+from src.utils.llm_client import get_default_model, get_openai_client
+
+DEFAULT_MODEL = get_default_model()
+client = get_openai_client()
 
 PROMPT_PATH = Path("src/prompts/dispute_detection.txt")
 
@@ -30,7 +28,7 @@ def detect_dispute(preprocessed_email: dict) -> dict:
     )
 
     response = client.chat.completions.create(
-        model="gpt-5.2",
+        model=DEFAULT_MODEL,
         messages=[{"role": "user", "content": filled_prompt}],
         temperature=0
     )
