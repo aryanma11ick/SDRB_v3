@@ -48,6 +48,16 @@ CREATE TABLE supplier_ltm (
     first_dispute_at TIMESTAMP,
     last_dispute_at  TIMESTAMP,
     disputes_per_30d NUMERIC(8,2) NOT NULL DEFAULT 0.00,
+    rolling_30d_total INT         NOT NULL DEFAULT 0,
+    rolling_30d_valid INT         NOT NULL DEFAULT 0,
+    rolling_30d_fake  INT         NOT NULL DEFAULT 0,
+    rolling_30d_amount NUMERIC(14,2) NOT NULL DEFAULT 0.00,
+    rolling_30d_risk  NUMERIC(5,2) NOT NULL DEFAULT 0.00,
+    rolling_90d_total INT         NOT NULL DEFAULT 0,
+    rolling_90d_valid INT         NOT NULL DEFAULT 0,
+    rolling_90d_fake  INT         NOT NULL DEFAULT 0,
+    rolling_90d_amount NUMERIC(14,2) NOT NULL DEFAULT 0.00,
+    rolling_90d_risk  NUMERIC(5,2) NOT NULL DEFAULT 0.00,
     last_updated    TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

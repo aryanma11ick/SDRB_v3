@@ -94,7 +94,73 @@ def _update_supplier_ltm(cursor: RealDictCursor, supplier_id: int, dispute_valid
         """,
         (dispute_valid, not dispute_valid, not dispute_valid, supplier_id),
     )
+    base_row = cursor.fetchone()
+    rolling = _calculate_rolling_metrics(cursor, supplier_id)
+    cursor.execute(
+        """
+        UPDATE supplier_ltm
+        SET
+            rolling_30d_total = %(total_30d)s,
+            rolling_30d_valid = %(valid_30d)s,
+            rolling_30d_fake = %(fake_30d)s,
+            rolling_30d_amount = %(amount_30d)s,
+            rolling_30d_risk = %(risk_30d)s,
+            rolling_90d_total = %(total_90d)s,
+            rolling_90d_valid = %(valid_90d)s,
+            rolling_90d_fake = %(fake_90d)s,
+            rolling_90d_amount = %(amount_90d)s,
+            rolling_90d_risk = %(risk_90d)s
+        WHERE supplier_id = %(supplier_id)s
+        RETURNING *;
+        """,
+        rolling,
+    )
     return cursor.fetchone()
+
+
+def _calculate_rolling_metrics(cursor: RealDictCursor, supplier_id: int) -> dict[str, Any]:
+    cursor.execute(
+        """
+        WITH stats AS (
+            SELECT
+                COUNT(*) FILTER (WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '30 days') AS total_30d,
+                COUNT(*) FILTER (WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '30 days' AND dispute_valid) AS valid_30d,
+                COUNT(*) FILTER (WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '30 days' AND NOT dispute_valid) AS fake_30d,
+                COALESCE(SUM(CASE WHEN created_at >= CURRENT_TIMESTAMP - INTERVAL '30 days' THEN claimed_amount END), 0)::NUMERIC(14,2) AS amount_30d,
+                COUNT(*) FILTER (WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '90 days') AS total_90d,
+                COUNT(*) FILTER (WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '90 days' AND dispute_valid) AS valid_90d,
+                COUNT(*) FILTER (WHERE created_at >= CURRENT_TIMESTAMP - INTERVAL '90 days' AND NOT dispute_valid) AS fake_90d,
+                COALESCE(SUM(CASE WHEN created_at >= CURRENT_TIMESTAMP - INTERVAL '90 days' THEN claimed_amount END), 0)::NUMERIC(14,2) AS amount_90d
+            FROM dispute_cases
+            WHERE supplier_id = %s
+        )
+        SELECT * FROM stats;
+        """,
+        (supplier_id,),
+    )
+    stats = cursor.fetchone() or {}
+
+    total_30d = stats.get("total_30d", 0) or 0
+    fake_30d = stats.get("fake_30d", 0) or 0
+    total_90d = stats.get("total_90d", 0) or 0
+    fake_90d = stats.get("fake_90d", 0) or 0
+
+    risk_30d = round((fake_30d / total_30d) * 100, 2) if total_30d else 0.0
+    risk_90d = round((fake_90d / total_90d) * 100, 2) if total_90d else 0.0
+
+    return {
+        "supplier_id": supplier_id,
+        "total_30d": total_30d,
+        "valid_30d": stats.get("valid_30d", 0) or 0,
+        "fake_30d": fake_30d,
+        "amount_30d": stats.get("amount_30d") or Decimal("0.00"),
+        "risk_30d": risk_30d,
+        "total_90d": total_90d,
+        "valid_90d": stats.get("valid_90d", 0) or 0,
+        "fake_90d": fake_90d,
+        "amount_90d": stats.get("amount_90d") or Decimal("0.00"),
+        "risk_90d": risk_90d,
+    }
 
 
 def resolve_dispute_case(
