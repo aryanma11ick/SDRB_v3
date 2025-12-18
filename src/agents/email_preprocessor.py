@@ -21,7 +21,7 @@ def preprocess_email_llm(raw_email: dict) -> dict:
     )
 
     response = client.chat.completions.create(
-        model=OPENAPI_MODEL,
+        model=OPENAI_MODEL,
         messages=[{"role": "user", "content": filled_prompt}],
         temperature=0
     )
