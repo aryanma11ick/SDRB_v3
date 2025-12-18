@@ -19,10 +19,11 @@ class ClarificationMailerAgent:
         self,
         thread_id: str,
         original_email_id: str,
-        original_message_id_header: str | None,
+        original_message_id_header: str | None = None,
         supplier_email_id: str,
         original_subject: str,
         clarification_question: str,
+        body_text: str | None = None,
         sender_display_name: str = "Accounts Payable Team"
     ) -> dict:
         """
@@ -77,15 +78,13 @@ class ClarificationMailerAgent:
         msg["In-Reply-To"] = reply_token
         msg["References"] = reply_token
 
-        msg.set_content(
-            f"""Hello,
+        msg.set_content(body_text or f"""Hello,
 
 {clarification_question}
 
 Thank you,
 {sender_display_name}
-"""
-        )
+""")
 
         # Encode message
         raw_message = base64.urlsafe_b64encode(

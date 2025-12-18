@@ -15,6 +15,7 @@ from src.agents.email_preprocessor import preprocess_email_llm
 from src.agents.dispute_detector import detect_dispute
 from src.agents.stm_manager import STMManager
 from src.agents.ambiguity_resolver import resolve_ambiguity
+from src.agents.clarification_drafter import draft_clarification_email
 from src.agents.clarification_mailer import ClarificationMailerAgent
 
 
@@ -167,13 +168,14 @@ def process_email(email: dict) -> str | None:
         # AMBIGUITY RESOLUTION (ONCE)
         # -----------------------------
         if not stm.get("pending_question"):
-            question = resolve_ambiguity(
+            draft = draft_clarification_email(
                 processed_email=processed,
                 ambiguity_summary=decision["reason"],
                 confidence=decision["confidence"]
             )
-            print("\nAMBIGUITY RESOLVER OUTPUT")
-            print(question)
+            question = draft["clarification_question"]
+            print("\nCLARIFICATION DRAFT OUTPUT")
+            print(json.dumps(draft, indent=2))
         else:
             question = stm["pending_question"]
 
@@ -211,6 +213,10 @@ def process_email(email: dict) -> str | None:
             if not isinstance(pending_question, str) or not pending_question:
                 raise RuntimeError("STM pending question missing or invalid")
 
+            draft_body = stm.get("pending_draft_body")
+            if draft_body is not None and not isinstance(draft_body, str):
+                raise RuntimeError("STM pending draft body invalid")
+
             result = mailer.send_clarification(
                 thread_id=thread_id,
                 original_email_id=original_email_id,
@@ -218,6 +224,7 @@ def process_email(email: dict) -> str | None:
                 supplier_email_id=supplier_email_id,
                 original_subject=processed["clean_text"].split("\n")[0],
                 clarification_question=pending_question
+                ,body_text=draft_body
             )
 
             print("Clarification email result:", result)

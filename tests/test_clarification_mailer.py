@@ -47,9 +47,11 @@ if not isinstance(pending_question, str) or not pending_question:
 result = mailer.send_clarification(
     thread_id=thread_id,
     original_email_id=original_email_id,
+    original_message_id_header=None,
     supplier_email_id=supplier_email_id,
     original_subject="Question regarding invoice",
-    clarification_question=pending_question
+    clarification_question=pending_question,
+    body_text=cast(Any, stm).get("pending_draft_body")
 )
 
 print(result)
