@@ -19,10 +19,10 @@ class ClarificationMailerAgent:
         self,
         thread_id: str,
         original_email_id: str,
-        original_message_id_header: str | None = None,
         supplier_email_id: str,
         original_subject: str,
         clarification_question: str,
+        original_message_id_header: str | None = None,
         body_text: str | None = None,
         sender_display_name: str = "Accounts Payable Team"
     ) -> dict:
