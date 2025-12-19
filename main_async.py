@@ -19,6 +19,10 @@ from src.agents.stm_manager import STMManager
 from src.agents.ambiguity_resolver import resolve_ambiguity
 from src.agents.clarification_drafter import draft_clarification_email
 from src.agents.clarification_mailer import ClarificationMailerAgent
+from src.agents.context_resolution_agent import (
+    ContextResolutionOutcome,
+    resolve_conversational_context,
+)
 from src.services.dispute_resolver import resolve_dispute_case
 
 stm_manager = STMManager()
@@ -62,8 +66,42 @@ async def process_email_async(email: dict) -> str | None:
     print("RAW EMAIL")
     print(json.dumps(email, indent=2))
 
+    # Resolve conversational context using STM, similarity, and an AI agent before dispute classification.
+    context_outcome: ContextResolutionOutcome = await run_in_thread(
+        resolve_conversational_context,
+        email,
+        stm_manager,
+    )
+    context_log = {
+        "email_id": email.get("email_id"),
+        "stm_found": bool(context_outcome.stm),
+        "similarity_score": context_outcome.similarity_score,
+        "decision": context_outcome.decision,
+    }
+    email["resolved_context"] = {
+        "decision": context_outcome.decision,
+        "similarity_score": context_outcome.similarity_score,
+        "notes": context_outcome.notes,
+        "stm_thread_id": context_outcome.stm.get("thread_id") if context_outcome.stm else None,
+    }
+    for key, value in (context_outcome.inherited_fields or {}).items():
+        if value and not email.get(key):
+            email[key] = value
+    print(f"[{context_log['email_id']}] Context resolution -> "
+          f"STM: {context_log['stm_found']}, "
+          f"similarity: {context_log['similarity_score']}, "
+          f"decision: {context_log['decision']}")
+    if context_outcome.skip_classification:
+        print(f"[{context_log['email_id']}] Context agent marked NO_OP; skipping classification.")
+        return "NO_OP"
+
     processed = await run_in_thread(preprocess_email_llm, email)
     processed["message_id_header"] = email.get("message_id_header")
+    processed["resolved_context"] = email.get("resolved_context")
+    for key in ("supplier_email_id", "supplier_id"):
+        inherited_value = context_outcome.inherited_fields.get(key)
+        if inherited_value and not processed.get(key):
+            processed[key] = inherited_value
     print("\nPREPROCESSED")
     print(json.dumps(processed, indent=2))
 
@@ -73,7 +111,7 @@ async def process_email_async(email: dict) -> str | None:
         return "SYSTEM"
 
     thread_id = processed["thread_id"]
-    stm = await run_in_thread(stm_manager.get, thread_id)
+    stm = context_outcome.stm
 
     resolving_ambiguity = (
         stm

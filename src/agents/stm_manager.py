@@ -44,3 +44,23 @@ class STMManager:
 
     def delete(self, thread_id: str):
         self.redis.delete(self._key(thread_id))
+
+    def find_active_by_supplier_email(self, supplier_email_id: str) -> dict | None:
+        if not supplier_email_id:
+            return None
+
+        normalized = supplier_email_id.lower()
+        for key in self.redis.scan_iter(match="stm:thread:*"):
+            ttl = self.redis.ttl(key)
+            if ttl == -2:
+                continue
+            if ttl is not None and ttl <= 0:
+                continue
+            data = self.redis.get(key)
+            if not data:
+                continue
+            record = json.loads(data)
+            for candidate in record.get("supplier_email_ids", []):
+                if isinstance(candidate, str) and candidate.lower() == normalized:
+                    return record
+        return None
