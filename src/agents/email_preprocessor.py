@@ -1,5 +1,6 @@
 import json
 import os
+from email.utils import parseaddr
 from pathlib import Path
 
 from src.utils.llm_client import get_default_model, get_openai_client
@@ -10,6 +11,28 @@ EMAIL_SYSTEM_ID = os.getenv("SYSTEM_EMAIL_ID")
 client = get_openai_client()
 
 PROMPT_PATH = Path("src/prompts/email_preprocessor.txt")
+
+
+def _extract_sender_header(raw_email: dict) -> tuple[str | None, str | None]:
+    """Return (email, domain) parsed from the Gmail header."""
+    from_header = raw_email.get("from")
+    if not isinstance(from_header, str):
+        return None, None
+
+    _display, email_address = parseaddr(from_header)
+    if not email_address:
+        return None, None
+
+    email_address = email_address.strip()
+    if not email_address:
+        return None, None
+
+    normalized_email = email_address.lower()
+    domain = normalized_email.split("@")[-1] if "@" in normalized_email else None
+    if domain:
+        domain = domain.lower()
+
+    return normalized_email, domain
 
 
 def preprocess_email_llm(raw_email: dict) -> dict:
@@ -36,6 +59,12 @@ def preprocess_email_llm(raw_email: dict) -> dict:
         processed = json.loads(content)
     except json.JSONDecodeError:
         raise RuntimeError("LLM returned invalid JSON")
+
+    sender_email, sender_domain = _extract_sender_header(raw_email)
+    if sender_email:
+        processed["supplier_email_id"] = sender_email
+    if sender_domain:
+        processed["supplier_id"] = sender_domain
 
     # =====================================================
     # HARD OVERRIDE: SYSTEM EMAIL DETECTION
