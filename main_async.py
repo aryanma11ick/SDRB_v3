@@ -30,6 +30,69 @@ mailer = ClarificationMailerAgent()
 PROCESSED_SET_KEY = "processed:email_ids"
 
 
+def _bootstrap_stm_from_email(
+    processed_email: dict,
+    classification: str,
+    reason: str,
+    state: str,
+    confidence: float | None,
+    thread_id: str | None,
+) -> dict:
+    now = datetime.now(timezone.utc).isoformat()
+    supplier_email = processed_email.get("supplier_email_id")
+    supplier_emails = [supplier_email] if supplier_email else []
+
+    entry = {
+        "email_id": processed_email.get("email_id"),
+        "message_id_header": processed_email.get("message_id_header"),
+        "timestamp": now,
+        "classification": classification,
+        "summary": reason,
+    }
+
+    return {
+        "thread_id": thread_id,
+        "supplier_id": processed_email.get("supplier_id"),
+        "supplier_email_ids": supplier_emails,
+        "state": state,
+        "email_trail": [entry],
+        "original_clean_text": processed_email.get("clean_text"),
+        "pending_question": None,
+        "pending_draft_body": None,
+        "last_classification": classification,
+        "confidence": confidence or 0.0,
+        "created_at": now,
+        "last_updated": now,
+    }
+
+
+def _append_email_trail_entry(stm: dict, processed_email: dict, classification: str, reason: str) -> None:
+    if not stm:
+        return
+    stm.setdefault("email_trail", [])
+    email_id = processed_email.get("email_id")
+    existing_ids = {entry.get("email_id") for entry in stm["email_trail"]}
+    if email_id in existing_ids:
+        return
+
+    stm["email_trail"].append({
+        "email_id": email_id,
+        "message_id_header": processed_email.get("message_id_header"),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "classification": classification,
+        "summary": reason,
+    })
+
+    supplier_email = processed_email.get("supplier_email_id")
+    if supplier_email:
+        stm.setdefault("supplier_email_ids", [])
+        if supplier_email not in stm["supplier_email_ids"]:
+            stm["supplier_email_ids"].append(supplier_email)
+
+    if not stm.get("original_clean_text"):
+        stm["original_clean_text"] = processed_email.get("clean_text")
+
+
 async def run_in_thread(func, *args, **kwargs):
     """Helper to run blocking functions in a thread pool."""
     return await asyncio.to_thread(func, *args, **kwargs)
@@ -84,6 +147,13 @@ async def process_email_async(email: dict) -> str | None:
         "notes": context_outcome.notes,
         "stm_thread_id": context_outcome.stm.get("thread_id") if context_outcome.stm else None,
     }
+    conversation_thread_id = (
+        context_outcome.stm.get("thread_id")
+        if context_outcome.stm and context_outcome.stm.get("thread_id")
+        else email.get("thread_id")
+    )
+    email["conversation_thread_id"] = conversation_thread_id
+
     for key, value in (context_outcome.inherited_fields or {}).items():
         if value and not email.get(key):
             email[key] = value
@@ -97,6 +167,9 @@ async def process_email_async(email: dict) -> str | None:
 
     processed = await run_in_thread(preprocess_email_llm, email)
     processed["message_id_header"] = email.get("message_id_header")
+    processed["gmail_thread_id"] = processed.get("thread_id")
+    if conversation_thread_id:
+        processed["thread_id"] = conversation_thread_id
     processed["resolved_context"] = email.get("resolved_context")
     for key in ("supplier_email_id", "supplier_id"):
         inherited_value = context_outcome.inherited_fields.get(key)
@@ -111,7 +184,10 @@ async def process_email_async(email: dict) -> str | None:
         return "SYSTEM"
 
     thread_id = processed["thread_id"]
-    stm = context_outcome.stm
+    if context_outcome.stm and context_outcome.stm.get("thread_id") != thread_id:
+        thread_id = context_outcome.stm.get("thread_id")
+        processed["thread_id"] = thread_id
+    stm = context_outcome.stm or await run_in_thread(stm_manager.get, thread_id)
 
     resolving_ambiguity = (
         stm
@@ -119,7 +195,7 @@ async def process_email_async(email: dict) -> str | None:
         and stm.get("pending_question")
     )
 
-    if resolving_ambiguity:
+    if resolving_ambiguity and stm:
         context_text = (
             f"Original email:\n{stm.get('original_clean_text', '')}\n\n"
             f"Clarification question sent:\n{stm.get('pending_question', '')}\n\n"
@@ -149,7 +225,8 @@ async def process_email_async(email: dict) -> str | None:
         stm["pending_question"] = None
 
         if decision["classification"] == "NON_DISPUTE":
-            await run_in_thread(stm_manager.delete, thread_id)
+            stm["state"] = "RESOLVED_NON_DISPUTE"
+            await run_in_thread(stm_manager.create_or_update, stm)
             print("=" * 80, "\n")
             return "NON_DISPUTE"
 
@@ -157,7 +234,6 @@ async def process_email_async(email: dict) -> str | None:
             stm["state"] = "RESOLVED_DISPUTE"
             await run_in_thread(stm_manager.create_or_update, stm)
             await resolve_and_persist_dispute_async(processed, decision)
-            await run_in_thread(stm_manager.delete, thread_id)
             print("=" * 80, "\n")
             return "DISPUTE"
 
@@ -170,14 +246,42 @@ async def process_email_async(email: dict) -> str | None:
     print(json.dumps(decision, indent=2))
 
     if decision["classification"] == "NON_DISPUTE":
-        if stm:
-            await run_in_thread(stm_manager.delete, thread_id)
+        reason = decision.get("reason") or "UNSPECIFIED_REASON"
+        if not stm:
+            stm = _bootstrap_stm_from_email(
+                processed,
+                decision["classification"],
+                reason,
+                "RESOLVED_NON_DISPUTE",
+                decision.get("confidence"),
+                thread_id,
+            )
+        else:
+            _append_email_trail_entry(stm, processed, decision["classification"], reason)
+            stm["state"] = "RESOLVED_NON_DISPUTE"
+        stm["last_classification"] = decision["classification"]
+        stm["confidence"] = decision["confidence"]
+        await run_in_thread(stm_manager.create_or_update, stm)
         print("=" * 80, "\n")
         return "NON_DISPUTE"
 
     if decision["classification"] == "DISPUTE":
-        if stm:
-            await run_in_thread(stm_manager.delete, thread_id)
+        reason = decision.get("reason") or "UNSPECIFIED_REASON"
+        if not stm:
+            stm = _bootstrap_stm_from_email(
+                processed,
+                decision["classification"],
+                reason,
+                "RESOLVED_DISPUTE",
+                decision.get("confidence"),
+                thread_id,
+            )
+        else:
+            _append_email_trail_entry(stm, processed, decision["classification"], reason)
+            stm["state"] = "RESOLVED_DISPUTE"
+        stm["last_classification"] = decision["classification"]
+        stm["confidence"] = decision["confidence"]
+        await run_in_thread(stm_manager.create_or_update, stm)
         await resolve_and_persist_dispute_async(processed, decision)
         print("=" * 80, "\n")
         return "DISPUTE"
